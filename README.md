@@ -26,13 +26,22 @@
 
 **问答路径（本地优先 + 回退）**
 
-1. `run.py` → `KnowledgeBase.search(question, top_k)`
-2. `kb.py`：`QianfanClient.embed()` 生成查询向量 → `chromadb.query()` 取回 chunks
-3. `run.py`：`should_fallback()` 判断命中不足
-4. 若需回退：`web_fallback.search_and_extract()` → `KnowledgeBase.ingest_web_pages()`
-5. 再次 `KnowledgeBase.search()` 得到最终 evidence
-6. `run.py`：`build_sources()` → `build_prompt()` → `QianfanClient.chat()`
-7. `parse_report()` 校验 JSON → `render_markdown()` 输出 `report.json` + `report.md`
+1. `run.py` 调用 `KnowledgeBase.search(question, top_k)`：先把问题转成向量并检索本地向量库。
+2. `kb.py` 内部：`QianfanClient.embed()` 生成“问题向量”，`chromadb.query()` 返回最相近的文本块。
+3. `run.py` 调用 `should_fallback()`：判断命中数量是否过少或距离是否过大（说明相关性不足）。
+4. 若需回退：`web_fallback.search_and_extract()` 搜索网页并抽取正文 → `KnowledgeBase.ingest_web_pages()` 入库。
+5. 再次 `KnowledgeBase.search()`：用同样的问题重新检索，得到更丰富的 evidence。
+6. `run.py` 组装证据：`build_sources()` 把每个文本块变成包含 `source_id + snippet` 的 evidence。
+7. `run.py` 生成提示词：`build_prompt()` 把问题与 evidence 拼成“只准引用这些来源”的指令。
+8. `QianfanClient.chat()` 生成结构化 JSON（summary + claims + sources）。
+9. `parse_report()` 校验 JSON 格式与 `source_ids` 合法性 → `render_markdown()` 输出 `report.json` + `report.md`。
+
+**问答路径背后的原理（为什么要这么做）**
+
+- **为什么先向量检索？** 因为模型本身不会“记住”你的本地资料，必须先把相关内容检索出来作为证据。
+- **为什么需要回退？** 当本地资料缺失或相关度不足时，允许临时拉取网页内容补足证据。
+- **为什么要稳定 `source_id`？** 让每条结论都能对应到具体文本块，避免“凭空生成”。
+- **为什么要结构化 JSON？** 统一输出格式，便于程序检查“是否有引用、引用是否有效”。
 
 **核心接口速查（谁调用谁）**
 
