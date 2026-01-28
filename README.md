@@ -9,6 +9,14 @@
 
 ## 模块协作与数据流（接口如何串起来）
 
+下面用“完全不了解 LLM 的读者也能看懂”的方式，说明这些接口如何协作。
+
+**你可以把它理解为三步：**
+
+1. 把本地资料切成小块并存进“向量知识库”。
+2. 提问时先从本地找相关内容，不够再去网上补。
+3. 把找到的内容交给模型生成“带引用”的结构化答案。
+
 **入库路径（准备知识库）**
 
 1. `ingest_local.py` → `KnowledgeBase.ingest_local_dir(data_dir)`
@@ -31,6 +39,23 @@
 - `ingest_local.py` 只调用：`KnowledgeBase.ingest_local_dir()`
 - `run.py` 调用：`KnowledgeBase.search()`、`search_and_extract()`、`KnowledgeBase.ingest_web_pages()`、`QianfanClient.chat()`
 - `kb.py` 内部调用链：`build_documents()`/`build_web_documents()` → `add_documents()` → `QianfanClient.embed()` → `chromadb.upsert()`
+
+**每个文件负责什么（新手版）**
+
+- `ingest_local.py`：只做一件事——把 `data/` 里的文本资料“入库”。它不会生成答案。
+- `kb.py`：
+  - `chunk_text()`：把长文本切成小块，方便检索。
+  - `build_source_id()`：给每个小块一个稳定编号，后面引用会用到。
+  - `QianfanClient.embed()`：把文本变成“向量”，用于相似度检索。
+  - `KnowledgeBase.search()`：根据问题从向量库找出最相关的文本块。
+- `web_fallback.py`：当本地找不到时，去网上搜索并抽取正文（占位实现，可替换）。
+- `run.py`：把上述步骤串起来，最后生成 `report.json` + `report.md`。
+- `schema.py`：规定报告的固定格式（summary/claims/sources），避免输出结构混乱。
+
+**为什么要这样组织？**
+
+这样拆分可以让你很容易替换某一部分：比如你只想换网页搜索，就改 `web_fallback.py`；
+想换模型或 embedding，就改 `kb.py` 的 `QianfanClient`。核心流程不变。
 
 ## 依赖安装
 
